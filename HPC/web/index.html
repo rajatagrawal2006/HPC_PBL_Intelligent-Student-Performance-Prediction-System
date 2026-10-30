@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPS - Student Performance Prediction</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { display: flex; height: 100vh; background: #f8fafc; color: #1e293b; overflow: hidden; }
+#sidebar { width: 220px; background: #0f172a; color: #f1f5f9; display: flex; flex-direction: column; flex-shrink: 0; }
+#sidebar h2 { padding: 18px 16px; font-size: 15px; border-bottom: 1px solid #1e293b; letter-spacing: 0.5px; }
+.nav-btn { background: none; border: none; color: #94a3b8; padding: 12px 16px; text-align: left; font-size: 13px; font-weight: 500; cursor: pointer; transition: 0.2s; display: block; width: 100%; }
+.nav-btn:hover, .nav-btn.active { background: #1e293b; color: #38bdf8; border-left: 3px solid #38bdf8; }
+#main { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
+#topbar { background: #fff; padding: 10px 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.top-status { font-size: 13px; color: #475569; } .top-status span { font-weight: 600; color: #0f172a; }
+.top-ctrls { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+#banner { display: none; background: #fee2e2; border-left: 4px solid #ef4444; color: #991b1b; padding: 8px 16px; font-size: 13px; justify-content: space-between; align-items: center; }
+.tab-content { display: none; padding: 20px; max-width: 1100px; } .tab-content.active { display: block; }
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.card h3 { font-size: 14px; margin-bottom: 12px; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }
+.grid { display: grid; gap: 10px; } .grid-2 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } .grid-4 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+label { font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px; }
+input, select { width: 100%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; background: #fff; }
+button { background: #2563eb; color: #fff; border: none; border-radius: 4px; padding: 7px 14px; font-size: 13px; font-weight: 500; cursor: pointer; transition: 0.15s; }
+button:hover { background: #1d4ed8; } button.btn-sec { background: #e2e8f0; color: #334155; } button.btn-sec:hover { background: #cbd5e1; }
+button.btn-stop { background: #ef4444; } button.btn-stop:hover { background: #dc2626; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e2e8f0; } th { background: #f1f5f9; color: #475569; font-weight: 600; } tr:hover { background: #f8fafc; cursor: pointer; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.b-risk { background: #fee2e2; color: #991b1b; } .b-avg { background: #fef3c7; color: #92400e; } .b-excel { background: #dcfce7; color: #166534; }
+.chart-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px; margin-top: 10px; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h2>SPS - HPC</h2>
+  <button class="nav-btn active" onclick="showTab(0)">1. Data & Train</button>
+  <button class="nav-btn" onclick="showTab(1)">2. Predict All</button>
+  <button class="nav-btn" onclick="showTab(2)">3. Student Single</button>
+  <button class="nav-btn" onclick="showTab(3)">4. Benchmark</button>
+</div>
+<div id="main">
+  <div id="topbar">
+    <div class="top-status">Rows: <span id="st-rows">0</span> | Model: <span id="st-mod">Untrained</span> | Status: <span id="st-trn">idle</span></div>
+    <div class="top-ctrls"><label style="margin:0">Threads:</label><select id="th-sel" style="width:70px"></select></div>
+  </div>
+  <div id="banner"><span id="banner-msg"></span><button style="padding:2px 6px;font-size:11px" onclick="hideErr()">X</button></div>
+
+  <!-- TAB 1: DATA & TRAIN -->
+  <div class="tab-content active" id="tab-0">
+    <div class="card">
+      <h3>Data Ingestion</h3>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">Select dataset: real UCI student benchmark data (395 records) or synthetic data for HPC parallel scalability benchmarking.</div>
+      <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap">
+        <label><input type="radio" name="src" value="uci" checked onchange="toggleRowsInput()"> UCI Mathematics (395 real records)</label>
+        <label><input type="radio" name="src" value="synthetic" onchange="toggleRowsInput()"> Synthetic Large (HPC Workload)</label>
+        <div id="syn-rows-wrap" style="display:none;align-items:center;gap:6px"><span>Rows:</span><input id="data-rows" type="number" value="50000" min="1000" max="500000" style="width:120px"></div>
+        <button id="btn-load" onclick="loadData()">Load & Preprocess</button>
+      </div>
+      <div id="load-res" style="font-size:12px;color:#475569"></div>
+    </div>
+    <div class="card">
+      <h3>Model Training</h3>
+      <div class="grid grid-4" style="margin-bottom:12px">
+        <div><label>Epochs</label><input id="tr-ep" type="number" min="1" max="5000" value="300"></div>
+        <div><label>Learning Rate</label><input id="tr-lr" type="number" step="0.01" min="0.001" max="1.0" value="0.1"></div>
+        <div><label>L2 Regularization</label><input id="tr-l2" type="number" step="0.0001" min="0.0" max="0.1" value="0.001"></div>
+        <div style="display:flex;align-items:flex-end;gap:8px"><button id="btn-train" onclick="startTrain()">Start Training</button><button class="btn-stop" onclick="stopTrain()">Stop</button></div>
+      </div>
+      <div id="tr-stat" style="font-size:12px;color:#475569;margin-bottom:8px"></div>
+      <div class="chart-box">
+        <div style="font-size:11px;font-weight:600;margin-bottom:4px">Loss History (BCE Loss vs Epochs)</div>
+        <svg id="loss-svg" width="100%" height="130" viewBox="0 0 600 130" style="background:#f8fafc"></svg>
+      </div>
+      <div id="holdout-metrics" class="card" style="margin-top:10px;background:#f8fafc;padding:12px">Hold-out evaluation will appear here after training.</div>
+    </div>
+    <div class="card">
+      <h3>Cross-Validation (Parallel Folds)</h3>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
+        <div><label>Folds (2-20)</label><input id="cv-folds" type="number" min="2" max="20" value="5" style="width:80px"></div>
+        <button id="btn-cv" onclick="runCV()">Run Cross-Validation</button>
+        <div id="cv-time" style="font-size:12px;color:#475569"></div>
+      </div>
+      <table id="cv-table"><thead><tr><th>Fold</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1 Score</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <!-- TAB 2: PREDICT -->
+  <div class="tab-content" id="tab-1">
+    <div class="card">
+      <h3>Batch Prediction</h3>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+        <div><label>Loop Schedule</label><select id="pr-sched"><option value="static">static</option><option value="dynamic">dynamic, 1024</option><option value="guided">guided</option></select></div>
+        <button id="btn-pred" onclick="predictAll()">Predict All</button><button class="btn-sec" onclick="exportPredictions()">Export CSV</button>
+        <div id="pr-time" style="font-size:12px;color:#475569"></div>
+      </div>
+      <div id="pred-summary" style="font-size:13px;font-weight:600;margin-bottom:8px"></div>
+      <div id="tier-counts" style="display:flex;gap:10px;font-size:13px;margin-bottom:8px;flex-wrap:wrap"></div>
+      <div style="font-size:11px;color:#64748b">Advisory tiers: At Risk (P &lt; 0.50, predicted Fail), Average (0.50 ≤ P &lt; 0.80, predicted Pass), Excelling (P ≥ 0.80, predicted Pass). These are application guidance thresholds, not clinical diagnoses.</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <h3>Students Predictions</h3>
+        <div style="display:flex;gap:8px;align-items:center;font-size:12px">
+          <span>Filter:</span><select id="tier-filter" onchange="fetchStudents(1)" style="width:100px"><option value="All">All</option><option value="At Risk">At Risk</option><option value="Average">Average</option><option value="Excelling">Excelling</option></select>
+          <button class="btn-sec" onclick="prevPage()">Prev</button><span id="page-lbl">Page 1</span><button class="btn-sec" onclick="nextPage()">Next</button>
+        </div>
+      </div>
+      <table id="stu-table"><thead><tr><th>ID</th><th>Probability</th><th>Tier</th><th>G2</th><th>Absences</th></tr></thead><tbody></tbody></table>
+      <div id="sug-detail" style="margin-top:12px;padding:10px;background:#f1f5f9;border-radius:4px;display:none;font-size:13px"></div>
+    </div>
+  </div>
+
+  <!-- TAB 3: STUDENT -->
+  <div class="tab-content" id="tab-2">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <h3>Individual Student Inference</h3>
+        <div style="display:flex;gap:8px;align-items:center"><input id="sample-id" type="number" min="1" value="1" style="width:70px"><button class="btn-sec" onclick="loadSample()">Load Sample</button></div>
+      </div>
+      <form id="stu-form" class="grid grid-4" style="margin-bottom:14px"></form>
+      <button id="btn-score" onclick="scoreStudent()">Predict Student</button>
+      <div id="score-res" style="margin-top:14px;display:none">
+        <div id="sc-outcome" style="margin-bottom:6px"></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><div style="font-weight:600">Pass Probability: <span id="sc-prob"></span></div><span id="sc-tier" class="badge"></span></div>
+        <div style="height:10px;background:#e2e8f0;border-radius:5px;overflow:hidden;margin-bottom:12px"><div id="sc-bar" style="height:100%;width:0%;background:#2563eb;transition:0.3s"></div></div>
+        <h4>Suggestions:</h4><ul id="sc-sugs" style="font-size:13px;padding-left:18px;margin-top:6px;color:#334155"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: BENCHMARK -->
+  <div class="tab-content" id="tab-3">
+    <div class="card">
+      <h3>Multi-Threaded Benchmark</h3>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+        <div><label>Rows</label><input id="bm-rows" type="number" min="1000" max="500000" value="50000" style="width:120px"></div>
+        <button id="btn-bm" onclick="runBench()">Run Benchmark</button><button class="btn-sec" onclick="exportBench()">Export CSV</button>
+      </div>
+      <div id="bm-badge" style="margin-bottom:10px"></div>
+      <table id="bm-table"><thead><tr><th>Threads</th><th>Schedule</th><th>Train (s)</th><th>Predict (s)</th><th>Speedup</th><th>Efficiency</th><th>Karp-Flatt</th><th>Predict Speedup</th></tr></thead><tbody></tbody></table>
+      <div id="bm-serial" style="font-size:12px;color:#475569;margin-top:8px"></div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">Parallel verification confirms numerical equivalence between serial and multi-threaded calculations; it does not measure ML model accuracy.</div>
+      <div class="grid grid-2" style="margin-top:14px">
+        <div class="chart-box"><div style="font-size:11px;font-weight:600;margin-bottom:4px">Speedup vs Threads (Ideal Line Dashed)</div><svg id="sp-svg" width="100%" height="160" viewBox="0 0 350 160" style="background:#f8fafc"></svg></div>
+        <div class="chart-box"><div style="font-size:11px;font-weight:600;margin-bottom:4px">Efficiency vs Threads</div><svg id="ef-svg" width="100%" height="160" viewBox="0 0 350 160" style="background:#f8fafc"></svg></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let curPage = 1, curTotal = 0, pollTimer = null;
+const featNames = ["sex","age","Medu","Fedu","traveltime","studytime","failures","schoolsup","famsup","paid","activities","higher","internet","romantic","famrel","freetime","goout","Dalc","Walc","health"];
+const binFeats = {"sex":["0 (F)","1 (M)"],"schoolsup":["0 (No)","1 (Yes)"],"famsup":["0 (No)","1 (Yes)"],"paid":["0 (No)","1 (Yes)"],"activities":["0 (No)","1 (Yes)"],"higher":["0 (No)","1 (Yes)"],"internet":["0 (No)","1 (Yes)"],"romantic":["0 (No)","1 (Yes)"]};
+
+function showErr(m) { document.getElementById("banner-msg").innerText = m; document.getElementById("banner").style.display = "flex"; }
+function hideErr() { document.getElementById("banner").style.display = "none"; }
+function showTab(i) {
+  document.querySelectorAll(".nav-btn").forEach((b,idx)=>b.classList.toggle("active", idx===i));
+  document.querySelectorAll(".tab-content").forEach((c,idx)=>c.classList.toggle("active", idx===i));
+}
+function toggleRowsInput() {
+  const isSyn = document.querySelector('input[name="src"]:checked').value === "synthetic";
+  document.getElementById("syn-rows-wrap").style.display = isSyn ? "flex" : "none";
+}
+
+async function updateStatus() {
+  try {
+    const res = await fetch("/api/status"); const d = await res.json();
+    document.getElementById("st-rows").innerText = d.rows;
+    document.getElementById("st-mod").innerText = d.model_trained ? "Trained" : "Untrained";
+    document.getElementById("st-trn").innerText = d.train_status;
+    const sel = document.getElementById("th-sel");
+    if (sel.options.length === 0) {
+      for (let t = 1; t <= d.max_threads; ++t) {
+        const opt = document.createElement("option"); opt.value = t; opt.innerText = t;
+        if (t === d.max_threads) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+  } catch (e) { showErr("Failed to fetch status: " + e.message); }
+}
+
+async function loadData() {
+  hideErr();
+  const src = document.querySelector('input[name="src"]:checked').value, rows = parseInt(document.getElementById("data-rows").value) || 50000;
+  const btn = document.getElementById("btn-load"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>Loading...`;
+  try {
+    const res = await fetch("/api/load", { method: "POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({source:src, rows}) });
+    const d = await res.json(); btn.disabled = false; btn.innerText = "Load & Preprocess";
+    if (d.error) return showErr(d.error);
+    const srcLabel = d.source === "synthetic" ? "Synthetic Workload" : "UCI Mathematics";
+    document.getElementById("load-res").innerHTML = `<b>Loaded ${d.rows} rows</b> (${srcLabel}) in ${d.load_s.toFixed(3)}s | Preprocessed in ${d.preprocess_s.toFixed(3)}s | Target Pass: ${d.pass_count} (${((d.pass_count/d.rows)*100).toFixed(1)}%)`;
+    // Clear previous results
+    drawLoss([]);
+    document.getElementById("tr-stat").innerText = "";
+    document.getElementById("holdout-metrics").innerHTML = '<span style="color:#64748b">Hold-out evaluation (20% split) will appear here after training.</span>';
+    document.querySelector("#cv-table tbody").innerHTML = "";
+    document.getElementById("cv-time").innerText = "";
+    document.getElementById("pr-time").innerText = "";
+    document.getElementById("pred-summary").innerText = "";
+    document.getElementById("tier-counts").innerHTML = "";
+    document.querySelector("#stu-table tbody").innerHTML = "";
+    document.getElementById("sug-detail").style.display = "none";
+    document.getElementById("score-res").style.display = "none";
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    updateStatus();
+  } catch (e) { btn.disabled = false; btn.innerText = "Load & Preprocess"; showErr(e.message); }
+}
+
+async function startTrain() {
+  hideErr();
+  const threads = parseInt(document.getElementById("th-sel").value), epochs = parseInt(document.getElementById("tr-ep").value);
+  const lr = parseFloat(document.getElementById("tr-lr").value), l2 = parseFloat(document.getElementById("tr-l2").value);
+  const btn = document.getElementById("btn-train"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>Training...`;
+  document.getElementById("holdout-metrics").innerHTML = '<em>Training in progress... hold-out evaluation will run upon completion.</em>';
+  try {
+    const res = await fetch("/api/train", { method: "POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({threads, epochs, learning_rate:lr, l2}) });
+    const d = await res.json();
+    if (d.error) { btn.disabled = false; btn.innerText = "Start Training"; return showErr(d.error); }
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollTrain, 500);
+  } catch (e) { btn.disabled = false; btn.innerText = "Start Training"; showErr(e.message); }
+}
+
+async function stopTrain() { try { await fetch("/api/train/stop", { method: "POST" }); } catch (e) { showErr(e.message); } }
+
+async function pollTrain() {
+  try {
+    const res = await fetch("/api/train/progress"); const d = await res.json();
+    document.getElementById("st-trn").innerText = d.status;
+    document.getElementById("tr-stat").innerText = `Epoch: ${d.epoch} | Elapsed: ${d.elapsed_s.toFixed(2)}s | Resumed: ${d.resumed ? "Yes" : "No"}`;
+    drawLoss(d.loss);
+    if (d.status === "done" || d.status === "stopped") {
+      const btn = document.getElementById("btn-train"); btn.disabled = false; btn.innerText = "Start Training";
+      const m = d.holdout || {};
+      const totalEval = (m.tp || 0) + (m.fp || 0) + (m.tn || 0) + (m.fn || 0);
+      const statusBadge = d.status === "stopped" ? '<span class="badge b-avg">Stopped Early</span>' : '<span class="badge b-excel">Completed</span>';
+      if (totalEval > 0) {
+        document.getElementById("holdout-metrics").innerHTML =
+          `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">` +
+          `<b>Held-Out Test Set Evaluation (20% Split, ${totalEval} records)</b> ${statusBadge}</div>` +
+          `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;font-size:13px;text-align:center">` +
+          `<div style="background:#f1f5f9;padding:6px;border-radius:4px"><b>Accuracy</b><br>${(100*(m.accuracy||0)).toFixed(2)}%</div>` +
+          `<div style="background:#f1f5f9;padding:6px;border-radius:4px"><b>Precision</b><br>${(100*(m.precision||0)).toFixed(2)}%</div>` +
+          `<div style="background:#f1f5f9;padding:6px;border-radius:4px"><b>Recall</b><br>${(100*(m.recall||0)).toFixed(2)}%</div>` +
+          `<div style="background:#f1f5f9;padding:6px;border-radius:4px"><b>F1-Score</b><br>${(100*(m.f1||0)).toFixed(2)}%</div>` +
+          `</div>` +
+          `<div style="font-size:12px;color:#475569">` +
+          `Confusion Matrix: <b>TP:</b> ${m.tp||0} | <b>FP:</b> ${m.fp||0} | <b>TN:</b> ${m.tn||0} | <b>FN:</b> ${m.fn||0} &nbsp;|&nbsp; ` +
+          `Evaluation Time: <b>${(d.holdout_eval_s||0).toFixed(4)}s</b>` +
+          `</div>`;
+      }
+    }
+    if (d.status !== "running") { clearInterval(pollTimer); pollTimer = null; updateStatus(); }
+  } catch (e) {
+    const btn = document.getElementById("btn-train"); if (btn) { btn.disabled = false; btn.innerText = "Start Training"; }
+    clearInterval(pollTimer);
+  }
+}
+
+function drawLoss(loss) {
+  const svg = document.getElementById("loss-svg");
+  if (!loss || loss.length < 2) { svg.innerHTML = '<text x="20" y="70" font-size="12" fill="#94a3b8">Loss curve will be plotted here during training.</text>'; return; }
+  const W = 600, H = 130, padL = 45, padR = 20, padT = 15, padB = 25;
+  const maxL = Math.max(...loss), minL = Math.min(...loss), rng = (maxL - minL) || 1e-6;
+  const pts = loss.map((l, i) => {
+    const x = padL + (i / (loss.length - 1)) * (W - padL - padR);
+    const y = H - padB - ((l - minL) / rng) * (H - padT - padB);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  svg.innerHTML = `
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}" stroke="#cbd5e1" stroke-width="1"/>
+    <line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="#cbd5e1" stroke-width="1"/>
+    <polyline fill="none" stroke="#2563eb" stroke-width="2" points="${pts}"/>
+    <text x="${padL - 4}" y="${padT + 8}" font-size="10" fill="#64748b" text-anchor="end">${maxL.toFixed(3)}</text>
+    <text x="${padL - 4}" y="${H - padB}" font-size="10" fill="#64748b" text-anchor="end">${minL.toFixed(3)}</text>
+    <text x="${padL}" y="${H - 8}" font-size="10" fill="#64748b">Epoch 1</text>
+    <text x="${W - padR}" y="${H - 8}" font-size="10" fill="#64748b" text-anchor="end">Epoch ${loss.length}</text>
+    <text x="${(padL + W - padR) / 2}" y="${H - 8}" font-size="10" fill="#475569" text-anchor="middle">Epochs</text>
+    <text x="${padL + 6}" y="${padT + 10}" font-size="10" fill="#475569">Loss (BCE)</text>
+  `;
+}
+
+async function runCV() {
+  hideErr();
+  const folds = parseInt(document.getElementById("cv-folds").value) || 5, threads = parseInt(document.getElementById("th-sel").value);
+  const btn = document.getElementById("btn-cv"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>Validating...`;
+  try {
+    const res = await fetch("/api/validate", { method: "POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({folds, threads}) });
+    const d = await res.json(); btn.disabled = false; btn.innerText = "Run Cross-Validation";
+    if (d.error) return showErr(d.error);
+    document.getElementById("cv-time").innerText = `Completed in ${d.cv_s.toFixed(3)}s (${folds} folds, ${threads} threads)`;
+    const tb = document.querySelector("#cv-table tbody"); tb.innerHTML = "";
+    d.per_fold.forEach(f => {
+      tb.innerHTML += `<tr><td>Fold ${f.fold}</td><td>${(f.accuracy*100).toFixed(2)}%</td><td>${(f.precision*100).toFixed(2)}%</td><td>${(f.recall*100).toFixed(2)}%</td><td>${(f.f1*100).toFixed(2)}%</td></tr>`;
+    });
+    tb.innerHTML += `<tr style="font-weight:700;background:#f8fafc"><td>Mean</td><td>${(d.mean.accuracy*100).toFixed(2)}%</td><td>${(d.mean.precision*100).toFixed(2)}%</td><td>${(d.mean.recall*100).toFixed(2)}%</td><td>${(d.mean.f1*100).toFixed(2)}%</td></tr>`;
+  } catch (e) { btn.disabled = false; btn.innerText = "Run Cross-Validation"; showErr(e.message); }
+}
+
+async function predictAll() {
+  hideErr();
+  const threads = parseInt(document.getElementById("th-sel").value), sched = document.getElementById("pr-sched").value;
+  const btn = document.getElementById("btn-pred"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>Predicting...`;
+  try {
+    const res = await fetch("/api/predict", { method: "POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({threads, schedule:sched}) });
+    const d = await res.json(); btn.disabled = false; btn.innerText = "Predict All";
+    if (d.error) return showErr(d.error);
+    document.getElementById("pr-time").innerText = `Done in ${d.predict_s.toFixed(4)}s (${threads} threads, schedule: ${sched})`;
+    const passPct = ((d.pass_count / d.total) * 100).toFixed(1), failPct = ((d.fail_count / d.total) * 100).toFixed(1);
+    document.getElementById("pred-summary").innerHTML = `Classification: <span style="color:#16a34a">PASS: ${d.pass_count} (${passPct}%)</span> | <span style="color:#dc2626">FAIL: ${d.fail_count} (${failPct}%)</span> (Total: ${d.total})`;
+    document.getElementById("tier-counts").innerHTML = `<span class="badge b-risk">At Risk (P &lt; 50%): ${d.tiers["At Risk"]}</span> <span class="badge b-avg">Average (50-80%): ${d.tiers["Average"]}</span> <span class="badge b-excel">Excelling (P ≥ 80%): ${d.tiers["Excelling"]}</span>`;
+    fetchStudents(1);
+  } catch (e) { btn.disabled = false; btn.innerText = "Predict All"; showErr(e.message); }
+}
+
+async function fetchStudents(p) {
+  curPage = p; const tier = document.getElementById("tier-filter").value;
+  try {
+    const res = await fetch(`/api/students?tier=${tier}&page=${curPage}&size=20`);
+    const d = await res.json(); if (d.error) return showErr(d.error);
+    curTotal = d.total; const maxP = Math.max(1, Math.ceil(curTotal / 20));
+    document.getElementById("page-lbl").innerText = `Page ${curPage} of ${maxP}`;
+    const tb = document.querySelector("#stu-table tbody"); tb.innerHTML = "";
+    d.rows.forEach(r => {
+      const cls = r.tier==="At Risk"?"b-risk":(r.tier==="Average"?"b-avg":"b-excel");
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${r.id}</td><td>${(r.prob*100).toFixed(2)}%</td><td><span class="badge ${cls}">${r.tier}</span></td><td>${r.G2}</td><td>${r.absences}</td>`;
+      tr.onclick = () => {
+        const d = document.getElementById("sug-detail"); d.style.display = "block";
+        d.innerHTML = `<b>Student #${r.id} Suggestions:</b><ul style="margin-top:4px;padding-left:18px">${r.suggestions.map(s=>`<li>${s}</li>`).join("")}</ul>`;
+      };
+      tb.appendChild(tr);
+    });
+  } catch (e) { showErr(e.message); }
+}
+function prevPage() { if (curPage > 1) fetchStudents(curPage - 1); }
+function nextPage() { const maxP = Math.ceil(curTotal / 20); if (curPage < maxP) fetchStudents(curPage + 1); }
+function exportPredictions() { window.location.href = "/api/export/predictions"; }
+
+function buildStudentForm() {
+  const f = document.getElementById("stu-form"); f.innerHTML = "";
+  featNames.forEach(name => {
+    const div = document.createElement("div");
+    if (binFeats[name]) div.innerHTML = `<label>${name}</label><select name="${name}"><option value="0">${binFeats[name][0]}</option><option value="1">${binFeats[name][1]}</option></select>`;
+    else {
+      let minVal = 0, maxVal = 100, stepVal = "any";
+      if (name === "age") { minVal = 10; maxVal = 30; }
+      else if (name === "Medu" || name === "Fedu") { minVal = 0; maxVal = 4; }
+      else if (name === "traveltime" || name === "studytime") { minVal = 1; maxVal = 4; }
+      else if (name === "failures") { minVal = 0; maxVal = 4; }
+      else if (["famrel","freetime","goout","Dalc","Walc","health"].includes(name)) { minVal = 1; maxVal = 5; }
+      div.innerHTML = `<label>${name}</label><input type="number" step="${stepVal}" min="${minVal}" max="${maxVal}" name="${name}" value="${minVal}">`;
+    }
+    f.appendChild(div);
+  });
+  f.innerHTML += `<div><label>G2 (0-20)</label><input type="number" step="any" min="0" max="20" name="G2" value="10"></div><div><label>absences (0-100)</label><input type="number" step="any" min="0" max="100" name="absences" value="0"></div>`;
+}
+
+async function loadSample() {
+  hideErr(); const id = document.getElementById("sample-id").value;
+  try {
+    const res = await fetch(`/api/student/sample?id=${id}`); const d = await res.json();
+    if (d.error) return showErr(d.error);
+    const f = document.getElementById("stu-form");
+    for (const k in d) { const el = f.elements[k]; if (el) el.value = Math.round(d[k]); }
+  } catch (e) { showErr(e.message); }
+}
+
+async function scoreStudent() {
+  hideErr(); const f = document.getElementById("stu-form"), payload = {};
+  for (let el of f.elements) if (el.name) payload[el.name] = parseFloat(el.value) || 0;
+  const btn = document.getElementById("btn-score"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>Scoring...`;
+  try {
+    const res = await fetch("/api/student", { method: "POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({features:payload}) });
+    const d = await res.json(); btn.disabled = false; btn.innerText = "Predict Student";
+    if (d.error) return showErr(d.error);
+    document.getElementById("score-res").style.display = "block";
+    const pct = (d.prob * 100).toFixed(1);
+    document.getElementById("sc-outcome").innerHTML = d.predicted_pass ?
+      `<span class="badge b-excel" style="font-size:13px">Classification: PASS (P ≥ 0.50)</span>` :
+      `<span class="badge b-risk" style="font-size:13px">Classification: FAIL (P &lt; 0.50)</span>`;
+    document.getElementById("sc-prob").innerText = `${pct}% (Sigmoid probability)`;
+    const tb = document.getElementById("sc-tier"); tb.innerText = `Tier: ${d.tier}`;
+    tb.className = `badge ${d.tier==="At Risk"?"b-risk":(d.tier==="Average"?"b-avg":"b-excel")}`;
+    document.getElementById("sc-bar").style.width = `${pct}%`;
+    document.getElementById("sc-bar").style.background = d.prob >= 0.8 ? "#16a34a" : (d.prob >= 0.5 ? "#d97706" : "#dc2626");
+    document.getElementById("sc-sugs").innerHTML = d.suggestions.map(s => `<li>${s}</li>`).join("");
+  } catch (e) { btn.disabled = false; btn.innerText = "Predict Student"; showErr(e.message); }
+}
+
+async function runBench() {
+  hideErr(); const rows = parseInt(document.getElementById("bm-rows").value) || 50000;
+  const btn = document.getElementById("btn-bm"); btn.innerHTML = `<span class="spinner"></span>Benchmarking...`; btn.disabled = true;
+  try {
+    const res = await fetch("/api/benchmark", { method: "POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({rows}) });
+    const d = await res.json(); btn.innerHTML = "Run Benchmark"; btn.disabled = false;
+    if (d.error) return showErr(d.error);
+    document.getElementById("bm-badge").innerHTML = d.verified ?
+      `<span class="badge b-excel">Verified: parallel output matches serial (max diff ${d.max_abs_diff.toExponential(2)})</span>` :
+      `<span class="badge b-risk">Mismatch (diff ${d.max_abs_diff})</span>`;
+    const tb = document.querySelector("#bm-table tbody"); tb.innerHTML = "";
+    d.rows.forEach(r => {
+      tb.innerHTML += `<tr><td>${r.threads}</td><td>${r.schedule}</td><td>${r.train_s.toFixed(3)}</td><td>${r.predict_s.toFixed(4)}</td><td>${r.speedup.toFixed(2)}x</td><td>${(r.efficiency*100).toFixed(1)}%</td><td>${r.karp_flatt.toFixed(4)}</td><td>${r.predict_speedup.toFixed(2)}x</td></tr>`;
+    });
+    const lastR = d.rows[d.rows.length - 1];
+    document.getElementById("bm-serial").innerText = `Estimated serial fraction at max threads (${lastR.threads}p): e = ${lastR.karp_flatt.toFixed(4)}`;
+    drawBenchCharts(d.rows);
+  } catch (e) { btn.innerHTML = "Run Benchmark"; btn.disabled = false; showErr(e.message); }
+}
+
+function drawBenchCharts(rows) {
+  const uniq = []; rows.forEach(r => { if (!uniq.some(u => u.threads === r.threads)) uniq.push(r); });
+  const maxTh = Math.max(...uniq.map(u => u.threads)), maxSp = Math.max(maxTh, ...uniq.map(u => u.speedup));
+  const spSvg = document.getElementById("sp-svg"), W = 350, H = 160, pad = 24;
+  let spPts = "", idPts = "";
+  uniq.forEach(u => {
+    const x = pad + ((u.threads - 1) / (maxTh - 1 || 1)) * (W - 2 * pad);
+    const y = H - pad - (u.speedup / maxSp) * (H - 2 * pad), yId = H - pad - (u.threads / maxSp) * (H - 2 * pad);
+    spPts += `${x.toFixed(1)},${y.toFixed(1)} `; idPts += `${x.toFixed(1)},${yId.toFixed(1)} `;
+  });
+  spSvg.innerHTML = `<polyline fill="none" stroke="#94a3b8" stroke-dasharray="4" stroke-width="2" points="${idPts}"/><polyline fill="none" stroke="#2563eb" stroke-width="2.5" points="${spPts}"/><text x="${pad}" y="${pad}" font-size="10" fill="#64748b">Max Speedup: ${maxSp.toFixed(1)}x</text>`;
+  const efSvg = document.getElementById("ef-svg"); let efPts = "";
+  uniq.forEach(u => {
+    const x = pad + ((u.threads - 1) / (maxTh - 1 || 1)) * (W - 2 * pad), y = H - pad - (Math.min(1.2, u.efficiency) / 1.2) * (H - 2 * pad);
+    efPts += `${x.toFixed(1)},${y.toFixed(1)} `;
+  });
+  efSvg.innerHTML = `<polyline fill="none" stroke="#16a34a" stroke-width="2.5" points="${efPts}"/><text x="${pad}" y="${pad}" font-size="10" fill="#64748b">Efficiency (1.0 = 100%)</text>`;
+}
+function exportBench() { window.location.href = "/api/export/benchmark"; }
+
+buildStudentForm();
+updateStatus();
+</script>
+</body>
+</html>
